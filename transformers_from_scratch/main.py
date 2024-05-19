@@ -1,6 +1,5 @@
 from pathlib import Path
-from cProfile import Profile
-from pstats import SortKey, Stats
+import time
 
 import torch
 
@@ -15,7 +14,7 @@ HEAD_SIZE = 16
 DROPOUT = 0.2
 EMBEDDINGS_DIMENSION = 384
 LEARNING_RATE = 3e-4
-MAX_TRAINING_ITERATIONS = 3000
+MAX_TRAINING_ITERATIONS = 1000
 EVAL_INTERVAL = 500
 EVAL_ITERATIONS = 200
 TORCH_SEED = 1337
@@ -76,6 +75,7 @@ def main(input_text_file: str) -> None:
     valid_data = encoded_text[train_split_idx:]
 
     # bigram_model = BigramLanguageModel(tokenizer.vocab_size)
+    start_time = time.perf_counter_ns()
     transformer_model = TransformerLanguageModel(
         tokenizer.vocab_size,
         EMBEDDINGS_DIMENSION,
@@ -85,11 +85,17 @@ def main(input_text_file: str) -> None:
         NUM_LAYERS,
         DROPOUT
     )
+
+    transformer_model = torch.jit.script(transformer_model)
     optimizer = torch.optim.Adam(params=transformer_model.parameters(), lr=LEARNING_RATE)
     print("Setup Model\nStarting Training...")
 
     for step_num in range(MAX_TRAINING_ITERATIONS):
-        if step_num % EVAL_INTERVAL == 0 or step_num == MAX_TRAINING_ITERATIONS - 1:
+        # if step_num > 0 and step_num % EVAL_INTERVAL == 0 or step_num == MAX_TRAINING_ITERATIONS - 1:
+        if step_num % 50 == 0:
+            print(step_num)
+
+        if step_num == MAX_TRAINING_ITERATIONS - 1:
             losses = estimate_loss(transformer_model, train_data, valid_data)
             rounded_train_losses = round(losses["train"].item(), 3)
             rounded_validation_loss = round(losses["valid"].item(), 3)
@@ -104,6 +110,9 @@ def main(input_text_file: str) -> None:
         optimizer.step()
 
 
+    end_time = time.perf_counter_ns()
+    print(f"Total Training Time: {(end_time - start_time) * 1e-9}s")
+    
     tokens = transformer_model.generate(torch.zeros((1,1), dtype=torch.long), max_new_tokens=500)[0].tolist()
     decoded = tokenizer.decode(tokens)
     print(decoded)

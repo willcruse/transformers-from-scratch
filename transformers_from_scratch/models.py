@@ -2,6 +2,7 @@ from os import fork
 import torch
 from torch import nn
 from torch.nn import functional as F
+import torch.jit as jit
 
 class BigramLanguageModel(nn.Module):
     def __init__(self, vocab_size: int) -> None:
@@ -82,7 +83,8 @@ class TransformerLanguageModel(nn.Module):
 
         
 
-    def forward(self, idx: torch.Tensor, targets=None): 
+    # @torch.autocast(device_type="cpu")
+    def forward(self, idx: torch.Tensor, targets: torch.Tensor | None = None): 
         _, time = idx.shape
         token_embeddings = self.token_embedding_table(idx)
         token_position_embeddings = self.token_position_embedding_table(
@@ -107,10 +109,11 @@ class TransformerLanguageModel(nn.Module):
 
         return logits, loss
 
+    @jit.export
     def generate(self, idx, max_new_tokens: int):
         for _ in range(max_new_tokens):
             idx_crop = idx[:, -self._context_length:]
-            logits, loss = self(idx_crop)
+            logits, loss = self(idx_crop, None)
 
             logits_last_timestep = logits[:,-1,:]
             probs = F.softmax(logits_last_timestep, dim=-1)
@@ -143,6 +146,7 @@ class TransformerBlock(nn.Module):
         self.layer_norm_1 = nn.LayerNorm(embedding_dim)
         self.layer_norm_2 = nn.LayerNorm(embedding_dim)
 
+    # @torch.autocast(device_type="cpu")
     def forward(self, x):
         x = x + self.multi_head_attention_layer(self.layer_norm_1(x))
         x = x + self.feed_forward_network(self.layer_norm_2(x))
@@ -177,6 +181,7 @@ class MultiHeadAttention(nn.Module):
         )
         self.dropout_layer = nn.Dropout(dropout)
 
+    # @torch.autocast(device_type="cpu")
     def forward(self, x):
         out = torch.cat([h(x) for h in self.heads], dim=-1)
         out = self.projection_layer(out)
@@ -211,6 +216,7 @@ class AttentionHead(nn.Module):
            )
         )
 
+    # @torch.autocast(device_type="cpu")
     def forward(self, x: torch.Tensor):
         _, time, _ = x.shape # Batch Size, Context Length, Head Size
 
@@ -237,6 +243,7 @@ class FeedForwardNetwork(nn.Module):
             nn.Dropout(dropout),
         )
 
+    # @torch.autocast(device_type="cpu")
     def forward(self, x):
         return self.ffn(x)
 
